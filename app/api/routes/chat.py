@@ -78,7 +78,7 @@ async def chat(
         if authorization and hasattr(authorization, "project_access_contact"):
             active_orchestrator.project_contact_lookup = authorization.project_access_contact
 
-    history = [m.model_dump() for m in (request.conversation_history or [])]
+    history = [m.model_dump(include={"role", "content"}) for m in (request.conversation_history or [])]
 
     answer_sig = inspect.signature(active_orchestrator.answer)
     kwargs = {}

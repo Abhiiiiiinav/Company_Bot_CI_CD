@@ -1,4 +1,5 @@
 from typing import List, Dict, Any, Optional
+import re
 from pathlib import Path
 import hashlib
 import logging
@@ -12,6 +13,24 @@ from app.infrastructure.document.chunk_normalizer import ChunkNormalizer, Normal
 from app.infrastructure.vector.chroma_client import ChromaClient
 
 logger = logging.getLogger(__name__)
+
+
+def sanitize_financial_text(text: str) -> str:
+    """Normalize broken financial numbers and spaced decimals from table extractions."""
+    if not text:
+        return text
+    for _ in range(5):
+        text = re.sub(r"(\d+),\s+(\d{3}\b)", r"\1,\2", text)
+    text = re.sub(r"(\d+,\d{3})\.\s+(\d{1,4}\b)", r"\1.\2", text)
+    text = re.sub(
+        r"([(=+\-:\$€£~>]\s*|\b(?:EUR|USD|GBP|INR|JPY)\s+)(\d{1,4})\.\s+(\d{2}\b)",
+        r"\1\2.\3",
+        text,
+    )
+    return text
+
+
+_sanitize_financial_text = sanitize_financial_text
 
 
 def sanitize_chroma_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
@@ -145,11 +164,12 @@ def build_chunk_records_from_processed(
             }:
                 metadata[key] = value
         text_with_context = _contextualize(entry.hierarchy_path, chunk.text)
+        sanitized_text = sanitize_financial_text(text_with_context)
         
         records.append(
             {
                 "id": f"{document_id}-{position}",
-                "text": text_with_context,
+                "text": sanitized_text,
                 "metadata": metadata,
             }
         )

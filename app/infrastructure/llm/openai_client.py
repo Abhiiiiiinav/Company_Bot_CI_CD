@@ -92,6 +92,14 @@ def _extract_usage(usage: Any) -> tuple[int, int, int]:
     return p, c, t
 
 
+def _clean_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    cleaned = []
+    for m in messages:
+        if isinstance(m, dict) and "role" in m and "content" in m:
+            cleaned.append({"role": str(m["role"]), "content": str(m["content"])})
+    return cleaned
+
+
 class OpenAIClient(LLMProvider):
     """
     OpenAI / Azure OpenAI LLM provider supporting both direct OpenAI API and
@@ -180,7 +188,7 @@ class OpenAIClient(LLMProvider):
         try:
             response = self._client.chat.completions.create(
                 model=self.effective_model,
-                messages=messages,
+                messages=_clean_chat_messages(messages),
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
                 top_p=self.top_p,
@@ -243,7 +251,7 @@ class OpenAIClient(LLMProvider):
         try:
             response = self._client.chat.completions.create(
                 model=self.effective_model,
-                messages=messages,
+                messages=_clean_chat_messages(messages),
                 max_tokens=self.max_tokens,
                 temperature=self.temperature,
                 top_p=self.top_p,
