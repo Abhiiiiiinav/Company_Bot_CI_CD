@@ -19,7 +19,15 @@ from typing import Any, Sequence
 from docling.chunking import HybridChunker
 from docling.datamodel.base_models import DocumentStream, FormatToExtensions, InputFormat
 from docling.document_converter import DocumentConverter
+from docling_core.transforms.chunker.hierarchical_chunker import (
+    ChunkingDocSerializer,
+    ChunkingSerializerProvider,
+)
 from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
+from docling_core.transforms.serializer.markdown import (
+    BaseTableSerializer,
+    MarkdownTableSerializer,
+)
 from docling_core.types.doc import DocItemLabel
 
 from app.core.settings import (
@@ -189,6 +197,19 @@ class _ItemFacts:
     section_path: tuple[SectionHeading, ...]
 
 
+class MarkdownChunkingDocSerializer(ChunkingDocSerializer):
+    """Doc serializer that outputs clean 2D Markdown tables instead of lossy triplets."""
+
+    table_serializer: BaseTableSerializer = MarkdownTableSerializer()
+
+
+class MarkdownChunkingSerializerProvider(ChunkingSerializerProvider):
+    """Serializer provider injecting MarkdownTableSerializer into HybridChunker."""
+
+    def get_serializer(self, doc: Any) -> Any:
+        return MarkdownChunkingDocSerializer(doc=doc)
+
+
 class DoclingDocumentProcessor:
     """Parse and structurally chunk documents with Docling's HybridChunker."""
 
@@ -228,7 +249,11 @@ class DoclingDocumentProcessor:
                     f"Unable to initialise the Docling chunker tokenizer "
                     f"{self._tokenizer_name!r}: {error}"
                 ) from error
-            self._chunker = HybridChunker(tokenizer=tokenizer, max_tokens=self._max_tokens)
+            self._chunker = HybridChunker(
+                tokenizer=tokenizer,
+                max_tokens=self._max_tokens,
+                serializer_provider=MarkdownChunkingSerializerProvider(),
+            )
         return self._chunker
 
     def supported_extensions(self) -> Sequence[str]:
