@@ -6,7 +6,7 @@ metadata:
 spec:
   project: default
   source:
-    repoURL: https://github.com/AkaashSamson/Company_Bot.git
+    repoURL: https://github.com/Abhiiiiiinav/Company_Bot_CI_CD.git
     targetRevision: abhinav-qwen-cicd
     path: k8s
   destination:
@@ -18,3 +18,4 @@ spec:
       selfHeal: true
     syncOptions:
       - CreateNamespace=true
+
