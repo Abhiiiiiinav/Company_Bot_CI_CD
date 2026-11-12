@@ -17,7 +17,7 @@ spec:
     spec:
       containers:
         - name: knowlayer-ui
-          image: knowlayer-ui:latest
+          image: knowlayer-ui:abhinav-qwen-cicd-12-d4e06f6
           imagePullPolicy: IfNotPresent
           ports:
             - containerPort: 8501
