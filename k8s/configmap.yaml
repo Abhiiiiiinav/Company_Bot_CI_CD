@@ -1,0 +1,12 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: knowlayer-config
+  namespace: company-bot
+data:
+  PYTHONUNBUFFERED: "1"
+  DATABASE_URL: "sqlite:///./instance/knowlayer.db3"
+  DOCUMENTS_DIR: "/app/input"
+  STREAMLIT_API_BASE_URL: "http://knowlayer-api:8000"
+  TYPESAFE_BASE_URL: "http://host.docker.internal:11434"
+  DOCLING_VLM_BASE_URL: "http://host.docker.internal:11434"

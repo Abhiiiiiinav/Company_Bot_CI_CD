@@ -1,0 +1,40 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: knowlayer-ui
+  namespace: company-bot
+  labels:
+    app: knowlayer-ui
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: knowlayer-ui
+  template:
+    metadata:
+      labels:
+        app: knowlayer-ui
+    spec:
+      containers:
+        - name: knowlayer-ui
+          image: knowlayer-ui:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8501
+          envFrom:
+            - configMapRef:
+                name: knowlayer-config
+          livenessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 20
+            periodSeconds: 20
+            timeoutSeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /_stcore/health
+              port: 8501
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
