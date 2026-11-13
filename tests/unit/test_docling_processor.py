@@ -410,3 +410,160 @@ def test_get_docling_converter_caches_converters(monkeypatch):
     conv_scanned = get_docling_converter(is_digital_pdf=False)
     assert conv_scanned is not conv_digital
 
+
+# --- Chunk Normalization, Table Header Continuity, & Orphan Relocation Tests ---
+
+
+def test_table_header_duplicated_on_split_chunks():
+    from app.infrastructure.document.docling_processor import _heal_and_normalize_chunks
+
+    table_header = "| Metric | Value |\n| :--- | :--- |"
+    c0 = ProcessedChunk(
+        text=f"{table_header}\n| Revenue | $10M |",
+        index=0,
+        page_number=1,
+    )
+    c1 = ProcessedChunk(
+        text="| Profit | $2M |\n| Margin | 20% |",
+        index=1,
+        page_number=1,
+    )
+
+    healed = _heal_and_normalize_chunks([c0, c1])
+    assert len(healed) == 2
+    assert healed[0].text == f"{table_header}\n| Revenue | $10M |"
+    assert healed[1].text == f"{table_header}\n| Profit | $2M |\n| Margin | 20% |"
+    assert healed[0].index == 0
+    assert healed[1].index == 1
+
+
+def test_orphan_heading_relocated_to_next_chunk():
+    from app.infrastructure.document.docling_processor import _heal_and_normalize_chunks
+
+    c0 = ProcessedChunk(
+        text="General corporate overview text.\n\n### 4.2 Leave Entitlement",
+        index=0,
+        page_number=1,
+    )
+    c1 = ProcessedChunk(
+        text="All full-time employees are entitled to 20 days paid leave.",
+        index=1,
+        page_number=2,
+    )
+
+    healed = _heal_and_normalize_chunks([c0, c1])
+    assert len(healed) == 2
+    assert healed[0].text == "General corporate overview text."
+    assert healed[1].text.startswith("### 4.2 Leave Entitlement\n\nAll full-time employees")
+
+
+def test_standalone_orphan_heading_merged_forward():
+    from app.infrastructure.document.docling_processor import _heal_and_normalize_chunks
+
+    c0 = ProcessedChunk(
+        text="### Section 5: Termination Procedure",
+        index=0,
+        page_number=1,
+    )
+    c1 = ProcessedChunk(
+        text="Employees must provide a written two-week notice.",
+        index=1,
+        page_number=2,
+    )
+
+    healed = _heal_and_normalize_chunks([c0, c1])
+    assert len(healed) == 1
+    assert healed[0].text == "### Section 5: Termination Procedure\n\nEmployees must provide a written two-week notice."
+    assert healed[0].index == 0
+
+
+def test_micro_stubs_pruned():
+    from app.infrastructure.document.docling_processor import _heal_and_normalize_chunks
+
+    c0 = ProcessedChunk(text="Substantive paragraph text.", index=0, page_number=1)
+    c1 = ProcessedChunk(text="Page 1 of 12", index=1, page_number=1)
+    c2 = ProcessedChunk(text="Benefits ................................ 42", index=2, page_number=2)
+    c3 = ProcessedChunk(text="Detailed benefits coverage explanation.", index=3, page_number=2)
+
+    healed = _heal_and_normalize_chunks([c0, c1, c2, c3])
+    assert len(healed) == 2
+    assert healed[0].text == "Substantive paragraph text."
+    assert healed[1].text == "Detailed benefits coverage explanation."
+    assert healed[0].index == 0
+    assert healed[1].index == 1
+
+
+def test_is_scanned_metadata_attached():
+    from app.infrastructure.document.docling_processor import _heal_and_normalize_chunks
+
+    c0 = ProcessedChunk(text="Extracted OCR text.", index=0, page_number=1)
+    healed = _heal_and_normalize_chunks([c0], is_scanned=True)
+    assert len(healed) == 1
+    assert healed[0].metadata.get("is_scanned") is True
+
+
+def test_toc_dot_leaders_not_treated_as_table_headers():
+    from app.infrastructure.document.docling_processor import (
+        _extract_table_header,
+        _heal_and_normalize_chunks,
+    )
+
+    toc_pseudo_table = (
+        "| LEAVES OF ABSENCE........................................20 |\n"
+        "| -- |\n"
+        "| INTEREST................................................... |"
+    )
+    # TOC dot-leaders must never be extracted as a table header
+    assert _extract_table_header(toc_pseudo_table) is None
+
+    # Single-column pseudo tables must never be extracted as table headers
+    single_col_table = "| Item Name |\n| --- |\n| Value 1 |"
+    assert _extract_table_header(single_col_table) is None
+
+    # Multi-column table header without dot leaders is extracted properly
+    valid_table = "| Policy | Coverage |\n| --- | --- |\n| Health | Full |"
+    assert _extract_table_header(valid_table) == "| Policy | Coverage |\n| --- | --- |"
+
+    # Chunks consisting of TOC pseudo-tables are pruned
+    c0 = ProcessedChunk(text=toc_pseudo_table, index=0, page_number=2)
+    c1 = ProcessedChunk(text="Substantive policy content begins here.", index=1, page_number=3)
+    healed = _heal_and_normalize_chunks([c0, c1])
+    assert len(healed) == 1
+    assert healed[0].text == "Substantive policy content begins here."
+    assert healed[0].index == 0
+
+
+def test_toc_dot_leader_chunk_pruned():
+    from app.infrastructure.document.docling_processor import (
+        _is_micro_stub,
+        _heal_and_normalize_chunks,
+    )
+
+    # Multi-line TOC entries with dot leaders and page numbers
+    toc_raw = (
+        "LEAVES OF ABSENCE........................................................................................................................................................................................................20\n"
+        "INTEREST............................................................................................................................................................................"
+    )
+    assert _is_micro_stub(toc_raw) is True
+
+    c0 = ProcessedChunk(text=toc_raw, index=0, page_number=2)
+    c1 = ProcessedChunk(
+        text=(
+            "LEAVES OF ABSENCE........................................................................................................................................................................................................20\n"
+            "TRANSFER............................................................................................................................................................................"
+        ),
+        index=1,
+        page_number=2,
+    )
+    c2 = ProcessedChunk(
+        text="## Leaves of Absence\nEmployees are eligible for unpaid personal leave up to 30 days upon manager approval.",
+        index=2,
+        page_number=20,
+    )
+
+    healed = _heal_and_normalize_chunks([c0, c1, c2])
+    assert len(healed) == 1
+    assert "Employees are eligible for unpaid personal leave" in healed[0].text
+    assert healed[0].index == 0
+
+

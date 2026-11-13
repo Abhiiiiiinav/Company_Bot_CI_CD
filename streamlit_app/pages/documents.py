@@ -96,7 +96,7 @@ with tab_library:
     with st.expander("Upload & Ingest New Document", expanded=False):
         uploaded_file = st.file_uploader(
             "Choose a document file",
-            type=["pdf", "docx", "txt", "md", "rst"],
+            type=["pdf", "docx", "pptx", "xlsx", "csv", "html", "md", "txt", "rst", "adoc"],
             key="doc_file_uploader",
         )
         if uploaded_file is not None:

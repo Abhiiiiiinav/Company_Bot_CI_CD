@@ -52,10 +52,11 @@ DOCLING_CITATION_PDF_DIR = os.getenv(
     "DOCLING_CITATION_PDF_DIR", str(BASE_DIR / "data" / "citation_pdfs")
 )
 DOCLING_LIBREOFFICE_PATH = os.getenv("DOCLING_LIBREOFFICE_PATH", "")
-# Chunk budget in tokens. Kept at the embedding model's sequence limit
-# (sentence-transformers/all-MiniLM-L6-v2 truncates beyond 256) so chunks are
-# never silently truncated at embedding time.
-DOCLING_MAX_TOKENS = int(os.getenv("DOCLING_MAX_TOKENS", "256"))
+# Chunk budget in tokens. With BAAI/bge-small-en-v1.5 (512 token capacity), 384 tokens
+# provides optimal context for tables and paragraphs while reserving ~128 tokens for
+# heading breadcrumbs (_contextualize). When using sentence-transformers/all-MiniLM-L6-v2
+# (256 token limit), set DOCLING_MAX_TOKENS to 200-256 to prevent silent truncation.
+DOCLING_MAX_TOKENS = int(os.getenv("DOCLING_MAX_TOKENS", "384"))
 RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", "0.60"))
 RAG_DISTANCE_RELAXATION = float(os.getenv("RAG_DISTANCE_RELAXATION", "0.05"))
 RAG_MIN_DISTANCE_GAP = float(os.getenv("RAG_MIN_DISTANCE_GAP", "0.10"))
