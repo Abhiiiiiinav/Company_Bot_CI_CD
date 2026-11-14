@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import warnings
 from pathlib import Path
 from typing import Optional
@@ -279,4 +280,23 @@ DUAL_CACHE_SYNC_INTERVAL_SECONDS = float(
     os.getenv("DUAL_CACHE_SYNC_INTERVAL_SECONDS", os.getenv("LANGCACHE_SYNC_INTERVAL_SECONDS", "60.0"))
 )
 DUAL_CACHE_SYNC_ON_WRITE = os.getenv("DUAL_CACHE_SYNC_ON_WRITE", "true").lower() == "true"
+
+
+# ============================================
+# Chunk Normalization & Ingestion Settings
+# ============================================
+CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", COLLECTION_NAME)
+CHUNK_HARD_TOKEN_CEILING = int(os.getenv("CHUNK_HARD_TOKEN_CEILING", str(DOCLING_MAX_TOKENS)))
+CHUNK_COALESCE_MAX_TOKENS = int(os.getenv("CHUNK_COALESCE_MAX_TOKENS", str(DOCLING_MAX_TOKENS)))
+CHUNK_MIN_FRAGMENT_TOKENS = int(os.getenv("CHUNK_MIN_FRAGMENT_TOKENS", "80"))
+DYNAMIC_SECTION_TRACKING_ENABLED = (
+    os.getenv("DYNAMIC_SECTION_TRACKING_ENABLED", "true").lower() in ("true", "1", "yes")
+)
+CHUNK_NORMALIZER_ENABLED = (
+    os.getenv("CHUNK_NORMALIZER_ENABLED", "true").lower() in ("true", "1", "yes")
+)
+
+# Export module instance as `settings` for compatibility with `from app.core.settings import settings`
+settings = sys.modules[__name__]
+
 

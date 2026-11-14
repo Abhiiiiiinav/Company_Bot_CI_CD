@@ -1,7 +1,26 @@
+from typing import Any, Dict, List, Optional
 import re
 
 from app.domain.entities.chunk_metadata import build_chunk_metadata
 from app.domain.ports.document_processing import ProcessedDocument
+
+
+def sanitize_chroma_metadata(meta: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    ChromaDB strictly requires str, int, float, or bool metadata values.
+    Converts lists/tuples (like `page_span: [1, 2]`) to `"1 > 2"` and `None` to `""`.
+    """
+    clean: Dict[str, Any] = {}
+    for k, v in (meta or {}).items():
+        if isinstance(v, (list, tuple)):
+            clean[k] = " > ".join(str(item) for item in v)
+        elif v is None:
+            clean[k] = ""
+        elif isinstance(v, (str, int, float, bool)):
+            clean[k] = v
+        else:
+            clean[k] = str(v)
+    return clean
 
 
 def sanitize_financial_text(text: str) -> str:
@@ -126,7 +145,7 @@ def build_chunk_records_from_processed(
             {
                 "id": f"{document_id}-{position}",
                 "text": sanitized_text,
-                "metadata": metadata,
+                "metadata": sanitize_chroma_metadata(metadata),
             }
         )
     return records

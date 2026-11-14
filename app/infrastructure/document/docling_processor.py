@@ -211,6 +211,10 @@ class MarkdownChunkingSerializerProvider(ChunkingSerializerProvider):
         return MarkdownChunkingDocSerializer(doc=doc)
 
 
+# Strip null bytes and non-printable control characters (excluding \n and \t)
+CONTROL_CHARS_REGEX = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b\u200c\u200d\ufeff]")
+
+
 def _is_table_divider(line: str) -> bool:
     """Check if a line is a markdown table delimiter row (e.g., | :--- | ---: |)."""
     stripped = line.strip()
@@ -310,6 +314,10 @@ def _is_micro_stub(text: str) -> bool:
 
 def _extract_trailing_heading(text: str) -> tuple[str, str | None]:
     """Check if text ends with a markdown heading without body text underneath."""
+    # Ensure text is not inside an unclosed code block fence
+    if text.count("```") % 2 == 1:
+        return text, None
+
     lines = text.rstrip().splitlines()
     if not lines:
         return text, None
@@ -342,7 +350,7 @@ def _heal_and_normalize_chunks(
     normalized: list[ProcessedChunk] = []
 
     for chunk in chunks:
-        raw_text = chunk.text.strip()
+        raw_text = CONTROL_CHARS_REGEX.sub("", chunk.text).strip()
         if not raw_text:
             continue
 

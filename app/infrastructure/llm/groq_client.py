@@ -26,6 +26,14 @@ def _sanitize_response_body(body: str, max_length: int = 1000) -> str:
     return sanitized
 
 
+def _clean_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    cleaned = []
+    for m in messages:
+        if isinstance(m, dict) and "role" in m and "content" in m:
+            cleaned.append({"role": str(m["role"]), "content": str(m["content"])})
+    return cleaned
+
+
 class GroqClient(LLMProvider):
     BASE_URL = "https://api.groq.com/openai/v1/chat/completions"
 
@@ -65,7 +73,7 @@ class GroqClient(LLMProvider):
 
         payload = {
             "model": self.model,
-            "messages": messages,
+            "messages": _clean_chat_messages(messages),
             "max_tokens": self.max_tokens,
         }
 
@@ -146,7 +154,7 @@ class GroqClient(LLMProvider):
 
         payload = {
             "model": self.model,
-            "messages": messages,
+            "messages": _clean_chat_messages(messages),
             "max_tokens": self.max_tokens,
         }
 

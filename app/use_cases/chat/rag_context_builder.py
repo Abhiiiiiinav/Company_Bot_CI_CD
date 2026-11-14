@@ -203,7 +203,12 @@ class RAGContextBuilder:
 
         if conversation_history:
             # Only include the last 5 turns to prevent context length explosion
-            messages.extend(conversation_history[-5:])
+            for msg in conversation_history[-5:]:
+                if isinstance(msg, dict) and "role" in msg and "content" in msg:
+                    role = msg["role"]
+                    content = msg["content"]
+                    if role in ("system", "user", "assistant") and content is not None:
+                        messages.append({"role": str(role), "content": str(content)})
 
         messages.append(
             {
