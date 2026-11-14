@@ -98,6 +98,14 @@ flowchart TD
   * `test_data/MANIFEST.md` (Specification)
 * **Reason:** Enables objective evaluation of retrieval quality and accuracy.
 
+### G. Hardening & Multi-Cloud Scaffolding (`chunk-normalizer-integration`)
+* **Multi-Cloud Terraform (`terraform/`):** Added modules for GCP Compute (Jenkins Debian 12 server on ports 8080/22), AWS, and Azure.
+* **LLM Payload Sanitization:** Enforced strict `{"role", "content"}` filtering across `groq_client.py`, `openai_client.py`, `openrouter_client.py`, and `chat.py` to prevent HTTP 400 Bad Request errors.
+* **ChromaDB Metadata & Type Guard:** Implemented `sanitize_chroma_metadata()` to convert lists/tuples to strings (`[1, 2]` -> `"1 > 2"`) and `None` to `""`, preventing Chroma insertion crashes.
+* **Code Block Heading Defense:** Integrated `DynamicSectionAssignor` to strip code block fences before scanning for `#` headings so code comments never corrupt section breadcrumbs.
+* **ChromaDB Auto-Recovery:** Added `refresh_collection()` to recover from stale connection handles dynamically.
+* **Evaluation Benchmark:** Added `tests/evaluation/test_reranker_benchmark.py` (665 lines).
+
 ---
 
 ## 4. Why a Blind Branch Merge was Rejected
