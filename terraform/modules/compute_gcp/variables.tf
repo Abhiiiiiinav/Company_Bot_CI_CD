@@ -37,9 +37,27 @@ variable "network_name" {
 }
 
 variable "allowed_cidr_blocks" {
-  description = "CIDR blocks allowed to reach ports 22 and 8080 (restrict to your IP/VPN in production)"
+  description = "CIDR blocks allowed to reach exposed ports (restrict to your IP/VPN in production)"
   type        = list(string)
   default     = ["0.0.0.0/0"]
+}
+
+variable "allowed_ports" {
+  description = "TCP ports allowed through the firewall (e.g. ['22', '8080'] for Jenkins or ['22', '8000', '8501'] for apps)"
+  type        = list(string)
+  default     = ["8080", "22"]
+}
+
+variable "target_tags" {
+  description = "Network tags applied to the VM and matched by the firewall rule"
+  type        = list(string)
+  default     = ["jenkins-server"]
+}
+
+variable "startup_script" {
+  description = "Optional bash script to execute on VM startup"
+  type        = string
+  default     = null
 }
 
 variable "labels" {
@@ -47,4 +65,24 @@ variable "labels" {
   type        = map(string)
   default     = {}
 }
+
+variable "service_account_email" {
+  description = "Optional service account email to attach to the VM instance (e.g. for Jenkins VM)"
+  type        = string
+  default     = null
+}
+
+variable "service_account_scopes" {
+  description = "OAuth scopes granted to the attached service account"
+  type        = list(string)
+  default     = ["cloud-platform"]
+}
+
+variable "ssh_public_key" {
+  description = "Optional SSH public key for deployer user (bypasses OS Login for automated CI/CD SSH access)"
+  type        = string
+  default     = null
+}
+
+
 

@@ -1,24 +1,24 @@
-# Firewall rule allowing SSH (22) and Jenkins UI (8080) for tagged VMs
+# Firewall rule allowing specified ports (SSH, Jenkins, or App ports) for tagged VMs
 resource "google_compute_firewall" "allow_jenkins" {
-  name    = "${var.vm_name}-allow-jenkins"
+  name    = "${var.vm_name}-ingress"
   network = var.network_name
 
   allow {
     protocol = "tcp"
-    ports    = ["8080", "22"]
+    ports    = var.allowed_ports
   }
 
   source_ranges = var.allowed_cidr_blocks
-  target_tags   = ["jenkins-server"]
+  target_tags   = var.target_tags
 }
 
-# Clean Debian 12 Compute Engine VM (no startup scripts)
+# Debian 12 Compute Engine VM
 resource "google_compute_instance" "this" {
   name         = var.vm_name
   machine_type = var.machine_type
   zone         = var.zone
 
-  tags   = ["jenkins-server"]
+  tags   = var.target_tags
   labels = var.labels
 
   boot_disk {
@@ -42,7 +42,20 @@ resource "google_compute_instance" "this" {
     enable_integrity_monitoring = true
   }
 
-  metadata = {
+  metadata_startup_script = var.startup_script
+
+  dynamic "service_account" {
+    for_each = var.service_account_email != null ? [var.service_account_email] : []
+    content {
+      email  = service_account.value
+      scopes = var.service_account_scopes
+    }
+  }
+
+  metadata = var.ssh_public_key != null ? {
+    enable-oslogin = "FALSE"
+    ssh-keys       = "deployer:${var.ssh_public_key}"
+  } : {
     enable-oslogin = "TRUE"
   }
 }

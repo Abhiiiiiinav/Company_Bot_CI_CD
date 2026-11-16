@@ -72,4 +72,10 @@ override.tf.json
 *_override.tf
 *_override.tf.json
 terraform.tfvars
+# Service Account and SSH keys
+gcp-sa-key.json
+*.pem
+*.key
+app-deploy-key*
+
 

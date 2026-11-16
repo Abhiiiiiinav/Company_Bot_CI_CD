@@ -12,7 +12,8 @@ terraform/
 │   ├── compute_aws/       # AWS EC2 + SG + dynamic AL2023 AMI + IMDSv2 + encrypted EBS
 │   └── compute_azure/     # Azure VNet/Subnet/NSG/Public IP + Ubuntu 22.04 VM
 └── environments/
-    ├── gcp/               # Active GCP entrypoint (loads ONLY Google provider)
+    ├── gcp/               # Active GCP entrypoint for Jenkins Host VM (loads ONLY Google provider)
+    ├── gcp-app/           # Active GCP entrypoint for Application Host VM (managed by Jenkins Pipeline)
     ├── aws/               # Ready-to-use AWS entrypoint (loads ONLY AWS provider)
     └── azure/             # Ready-to-use Azure entrypoint (loads ONLY AzureRM provider)
 ```
