@@ -1,0 +1,67 @@
+pipeline {
+    agent any
+
+    parameters {
+        choice(name: 'ACTION', choices: ['plan', 'apply', 'destroy'], description: 'Terraform action to execute')
+        choice(name: 'CLOUD_PROVIDER', choices: ['gcp', 'aws', 'azure'], description: 'Target cloud environment')
+        booleanParam(name: 'AUTO_APPROVE', defaultValue: false, description: 'Auto approve terraform apply/destroy')
+    }
+
+    environment {
+        TF_DIR = "terraform/environments/${params.CLOUD_PROVIDER}"
+        TF_KEY_DIR = "/var/jenkins_home/keys"
+    }
+
+    stages {
+        stage('1. Checkout Code') {
+            steps {
+                checkout scm
+                echo "Deploying infrastructure for: ${params.CLOUD_PROVIDER} with action: ${params.ACTION}"
+            }
+        }
+
+        stage('2. Terraform Init') {
+            steps {
+                dir("${env.TF_DIR}") {
+                    sh 'terraform init -upgrade'
+                }
+            }
+        }
+
+        stage('3. Terraform Plan') {
+            steps {
+                dir("${env.TF_DIR}") {
+                    sh 'terraform plan -out=tfplan'
+                }
+            }
+        }
+
+        stage('4. Terraform Apply / Destroy') {
+            when {
+                expression { return params.ACTION != 'plan' }
+            }
+            steps {
+                dir("${env.TF_DIR}") {
+                    script {
+                        if (params.ACTION == 'apply') {
+                            def approveFlag = params.AUTO_APPROVE ? '-auto-approve' : ''
+                            sh "terraform apply ${approveFlag} tfplan"
+
+                            // Export outputs (IP address and SSH deploy keys) for Jenkinsfile.app
+                            sh """
+                                mkdir -p ${env.TF_KEY_DIR}
+                                if terraform output -raw instance_ip >/dev/null 2>&1; then
+                                    terraform output -raw instance_ip > ${env.TF_KEY_DIR}/app_vm_ip.txt
+                                    echo "Exported App VM IP: \$(cat ${env.TF_KEY_DIR}/app_vm_ip.txt)"
+                                fi
+                            """
+                        } else if (params.ACTION == 'destroy') {
+                            def approveFlag = params.AUTO_APPROVE ? '-auto-approve' : ''
+                            sh "terraform destroy ${approveFlag}"
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

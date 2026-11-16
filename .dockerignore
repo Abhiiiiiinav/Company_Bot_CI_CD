@@ -10,10 +10,14 @@
 # 1. PYTHON BYTECODE & CACHES
 # REASONING: Bytecode compiled on Windows host will not work inside Linux container
 # and bloats the build context unnecessarily.
+.venv/
+venv/
 __pycache__/
+*.pyc
 *.py[cod]
 *$py.class
 *.so
+.git/
 .pytest_cache/
 .coverage
 htmlcov/
@@ -35,6 +39,9 @@ ENV/
 # 4. SENSITIVE CREDENTIALS & SECRETS
 # REASONING: Never bake .env secrets directly into the image layers.
 # Secrets should be injected at runtime via docker-compose (env_file / environment).
+/data/
+*.db
+*.sqlite3
 .env
 *.pem
 *.key
@@ -54,3 +61,18 @@ cache/
 .idea/
 .DS_Store
 Thumbs.db
+.agents/
+.specify/
+
+# 7. TESTS & DOCUMENTATION
+# REASONING: Not needed inside production runtime containers.
+.coverage
+htmlcov/
+tests/
+docs/
+Documentation/
+old_legacy/
+specs/
+report.html
+research_doc.md
+
