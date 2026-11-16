@@ -76,6 +76,14 @@ def _strip_reasoning(raw: str) -> str:
     return cleaned.strip()
 
 
+def _clean_chat_messages(messages: List[Dict[str, Any]]) -> List[Dict[str, str]]:
+    cleaned = []
+    for m in messages:
+        if isinstance(m, dict) and "role" in m and "content" in m:
+            cleaned.append({"role": str(m["role"]), "content": str(m["content"])})
+    return cleaned
+
+
 class OpenRouterClient(LLMProvider):
     BASE_URL = "https://openrouter.ai/api/v1/chat/completions"
 
@@ -117,7 +125,7 @@ class OpenRouterClient(LLMProvider):
 
         payload = {
             "model": self.model,
-            "messages": messages,
+            "messages": _clean_chat_messages(messages),
             "max_tokens": self.max_tokens,
         }
 
@@ -197,7 +205,7 @@ class OpenRouterClient(LLMProvider):
 
         payload = {
             "model": self.model,
-            "messages": messages,
+            "messages": _clean_chat_messages(messages),
             "max_tokens": self.max_tokens,
         }
 

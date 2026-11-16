@@ -42,12 +42,17 @@ class VisualOutputContract(BaseModel):
         default="",
         description="Reference identifier of the source image or picture item (e.g. #/pictures/0).",
     )
+    table_markdown: str = Field(
+        default="",
+        description="Structured 2D Markdown table grid extracted from visual tables.",
+    )
 
     def to_search_text(self) -> str:
         """Render a concise, high-signal text representation for vector embedding and retrieval.
 
-        Preserves 100% compatibility with text-based RAG indexing while avoiding
-        unnecessary narrative filler.
+        For visual tables with a table_markdown grid, returns a Dual-Payload representation:
+        Semantic summary and rules at the top (for vector embedding recall), followed by the
+        structured 2D Markdown table grid (for downstream LLM coordinate and cell lookups).
         """
         sections: list[str] = []
         if self.visual_type and self.visual_type not in {"other", "unclassified"}:
@@ -63,7 +68,16 @@ class VisualOutputContract(BaseModel):
         if self.uncertain_items:
             sections.append(f"Uncertain: {', '.join(self.uncertain_items)}")
 
-        return "\n".join(sections) if sections else self.summary
+        base_text = "\n".join(sections) if sections else self.summary
+
+        # If a structured 2D table grid exists, append it as the second tier of the dual payload
+        if self.table_markdown and self.table_markdown.strip():
+            clean_grid = self.table_markdown.strip()
+            if base_text:
+                return f"{base_text}\n\n[Structured Table Data]\n{clean_grid}"
+            return clean_grid
+
+        return base_text
 
     def __str__(self) -> str:
         return self.to_search_text()
@@ -80,4 +94,5 @@ class VisualOutputContract(BaseModel):
             "source_reference": self.source_reference,
             "entity_count": len(self.entities),
             "relationship_count": len(self.relationships),
+            "has_table_grid": bool(self.table_markdown and self.table_markdown.strip()),
         }

@@ -59,9 +59,11 @@ class VisualEnricher:
         self,
         model_name: str = DOCLING_VLM_MODEL,
         vlm_engine: VisualUnderstandingEngine | None = None,
+        table_extractor: Any | None = None,
     ):
         self._model_name = model_name
         self._vlm_engine = vlm_engine
+        self._table_extractor = table_extractor
         self._classifier: Any | None = None
 
     @property
@@ -70,6 +72,14 @@ class VisualEnricher:
         if self._vlm_engine is None:
             self._vlm_engine = get_vlm_engine(self._model_name)
         return self._vlm_engine
+
+    @property
+    def table_extractor(self) -> Any:
+        """Lazily resolve the table visual extractor."""
+        if self._table_extractor is None:
+            from app.infrastructure.document.table_visual_extractor import TableVisualExtractor
+            self._table_extractor = TableVisualExtractor(self.vlm_engine)
+        return self._table_extractor
 
     def enrich(
         self,
@@ -125,12 +135,23 @@ class VisualEnricher:
 
         # Parallelize VLM description across threads if multiple candidates exist
         import concurrent.futures
+
+        def _invoke_describe(pic: PictureFacts) -> Any:
+            try:
+                return self._describe(
+                    pic.image_bytes,
+                    picture_ref=pic.ref,
+                    label=self._label(pic),
+                )
+            except TypeError:
+                return self._describe(pic.image_bytes, picture_ref=pic.ref)
+
         descriptions: dict[str, Any] = {}
         if len(candidates) > 1:
             max_workers = min(3, len(candidates))
             with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
                 future_map = {
-                    executor.submit(self._describe, pic.image_bytes, picture_ref=pic.ref): pic.ref
+                    executor.submit(_invoke_describe, pic): pic.ref
                     for pic, _ in candidates
                 }
                 for future in concurrent.futures.as_completed(future_map):
@@ -143,7 +164,7 @@ class VisualEnricher:
         else:
             pic, _ = candidates[0]
             try:
-                descriptions[pic.ref] = self._describe(pic.image_bytes, picture_ref=pic.ref)
+                descriptions[pic.ref] = _invoke_describe(pic)
             except Exception as err:
                 logger.warning("VLM description failed for %s: %s", pic.ref, err)
                 descriptions[pic.ref] = None
@@ -265,8 +286,15 @@ class VisualEnricher:
         image_bytes: bytes,
         ocr_context: str = "",
         picture_ref: str = "",
+        label: str = "",
     ) -> VisualOutputContract:
         """Describe visual content using the configured visual understanding engine."""
+        if label in TEXTUAL_LABELS:
+            return self.table_extractor.extract(
+                image_bytes=image_bytes,
+                ocr_context=ocr_context,
+                picture_ref=picture_ref,
+            )
         return self.vlm_engine.describe(
             image_bytes=image_bytes,
             ocr_context=ocr_context,

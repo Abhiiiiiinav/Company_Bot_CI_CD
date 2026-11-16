@@ -22,6 +22,7 @@ from typing import Any
 import httpx
 
 from app.core.settings import (
+    DOCLING_TABLE_VLM_MAX_NEW_TOKENS,
     DOCLING_VLM_BASE_URL,
     DOCLING_VLM_MAX_NEW_TOKENS,
     DOCLING_VLM_MODEL,
@@ -58,6 +59,15 @@ class VisualUnderstandingEngine(ABC):
     ) -> VisualOutputContract:
         """Analyze an image and return structured visual facts."""
 
+    @abstractmethod
+    def describe_table(
+        self,
+        image_bytes: bytes,
+        ocr_context: str = "",
+        picture_ref: str = "",
+    ) -> VisualOutputContract:
+        """Extract both a semantic summary and structured 2D Markdown table grid from a table image."""
+
 
 class OllamaQwen2VLEngine(VisualUnderstandingEngine):
     """Production-grade VLM engine backed by decoupled Ollama running 8-bit Qwen2-VL.
@@ -79,12 +89,14 @@ class OllamaQwen2VLEngine(VisualUnderstandingEngine):
         model_name: str = DOCLING_VLM_MODEL,
         timeout_seconds: float = DOCLING_VLM_TIMEOUT_SECONDS,
         max_new_tokens: int = DOCLING_VLM_MAX_NEW_TOKENS,
+        table_max_new_tokens: int = DOCLING_TABLE_VLM_MAX_NEW_TOKENS,
         **kwargs: Any,
     ):
         self._base_url = base_url.rstrip("/")
         self._model_name = model_name
         self._timeout_seconds = timeout_seconds
         self._max_new_tokens = max_new_tokens
+        self._table_max_new_tokens = table_max_new_tokens
         self._client: httpx.Client | None = None
         self._init_lock = threading.Lock()
 
@@ -208,6 +220,151 @@ class OllamaQwen2VLEngine(VisualUnderstandingEngine):
                 source_reference=picture_ref,
                 uncertain_items=["vlm_service_unavailable"],
             )
+
+    def describe_table(
+        self,
+        image_bytes: bytes,
+        ocr_context: str = "",
+        picture_ref: str = "",
+    ) -> VisualOutputContract:
+        """Extract both a concise semantic summary and 2D Markdown table grid."""
+        if not image_bytes:
+            return VisualOutputContract(
+                visual_type="table",
+                summary="Empty or missing table image bytes",
+                source_reference=picture_ref,
+                uncertain_items=["image_empty"],
+            )
+
+        from PIL import Image
+
+        try:
+            image = Image.open(BytesIO(image_bytes))
+            image.verify()
+        except Exception as error:
+            logger.warning("invalid image bytes for ref=%s: %s", picture_ref, error)
+            return VisualOutputContract(
+                visual_type="table",
+                summary="Invalid table image data",
+                source_reference=picture_ref,
+                uncertain_items=["image_corrupt_or_unsupported"],
+            )
+
+        try:
+            image_bytes, _ = normalize_alpha_to_white(image_bytes)
+            image_bytes, _ = guard_max_dimension(image_bytes, max_dim=1024)
+        except Exception as norm_err:
+            logger.warning(
+                "image normalization failed for ref=%s: %s; using original bytes",
+                picture_ref,
+                norm_err,
+            )
+
+        system_instruction = (
+            "You are a factual technical table extractor. "
+            "1. Output a 1-2 sentence concise summary of the table's purpose, rules, and core categories.\n"
+            "2. Output the complete table as a clean 2D Markdown table grid with all rows, column headers, and cell values.\n"
+            "Format:\n"
+            "Summary: <concise summary>\n\n"
+            "| Column 1 | Column 2 |\n"
+            "| :--- | :--- |\n"
+            "| Val 1 | Val 2 |\n"
+        )
+
+        prompt_text = "Extract table summary and structured markdown table grid."
+        if ocr_context:
+            truncated_ocr = ocr_context[:300].strip()
+            prompt_text += f" Context: [{truncated_ocr}]."
+
+        b64_image = base64.b64encode(image_bytes).decode("utf-8")
+
+        payload = {
+            "model": self._model_name,
+            "messages": [
+                {"role": "system", "content": system_instruction},
+                {"role": "user", "content": prompt_text, "images": [b64_image]},
+            ],
+            "stream": False,
+            "options": {
+                "temperature": 0.0,
+                "num_predict": self._table_max_new_tokens,
+            },
+        }
+
+        client = self._get_client()
+        t_start = time.perf_counter()
+        try:
+            with self._lock:
+                response = client.post(f"{self._base_url}/api/chat", json=payload)
+            response.raise_for_status()
+            data = response.json()
+            raw_output = data.get("message", {}).get("content", "").strip()
+            eval_count = data.get("eval_count", 0)
+            infer_time = time.perf_counter() - t_start
+            tok_s = eval_count / infer_time if infer_time > 0 and eval_count > 0 else 0.0
+
+            logger.info(
+                "Ollama Qwen2-VL table inference complete [ref=%s, time=%.2fs, tokens=%d, tok/s=%.1f]",
+                picture_ref,
+                infer_time,
+                eval_count,
+                tok_s,
+            )
+            return self._parse_table_contract(raw_output, picture_ref)
+        except Exception as exc:
+            logger.warning(
+                "Ollama Qwen2-VL table inference failed for ref=%s: %s; falling back to standard description",
+                picture_ref,
+                exc,
+            )
+            return self.describe(image_bytes=image_bytes, ocr_context=ocr_context, picture_ref=picture_ref)
+
+    @classmethod
+    def _parse_table_contract(cls, raw_text: str, picture_ref: str) -> VisualOutputContract:
+        """Parse raw table model output into VisualOutputContract with table_markdown."""
+        if not raw_text or not raw_text.strip():
+            return VisualOutputContract(
+                visual_type="table",
+                summary="Table element produced no content.",
+                source_reference=picture_ref,
+            )
+
+        cleaned = raw_text.strip()
+        lines = cleaned.splitlines()
+
+        summary_lines: list[str] = []
+        table_lines: list[str] = []
+        in_table = False
+
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith("|") and stripped.endswith("|"):
+                in_table = True
+                table_lines.append(stripped)
+            elif in_table and stripped == "":
+                continue
+            elif not in_table:
+                clean_line = re.sub(
+                    r"^(?:Summary:|\*\*Summary:\*\*)\s*",
+                    "",
+                    stripped,
+                    flags=re.IGNORECASE,
+                ).strip()
+                if clean_line and not clean_line.startswith("```"):
+                    summary_lines.append(clean_line)
+
+        summary_text = " ".join(summary_lines).strip()
+        if not summary_text:
+            summary_text = "Structured visual table data."
+
+        table_grid = "\n".join(table_lines).strip()
+
+        return VisualOutputContract(
+            visual_type="table",
+            summary=summary_text[:1000].strip(),
+            table_markdown=table_grid,
+            source_reference=picture_ref,
+        )
 
     @staticmethod
     def _infer_visual_type(text: str) -> str:

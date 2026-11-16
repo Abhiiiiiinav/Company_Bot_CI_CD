@@ -61,3 +61,21 @@ input/*/
 
 # Playwright test recordings & traces
 test-results/
+
+# Terraform local state and secrets
+.terraform/
+*.tfstate
+*.tfstate.*
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+terraform.tfvars
+# Service Account and SSH keys
+gcp-sa-key.json
+*.pem
+*.key
+app-deploy-key*
+
+

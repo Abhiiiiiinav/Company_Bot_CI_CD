@@ -1,5 +1,6 @@
 import logging
 import os
+import sys
 import warnings
 from pathlib import Path
 from typing import Optional
@@ -23,6 +24,12 @@ DOCLING_REMOTE_URL = os.getenv("DOCLING_REMOTE_URL", "").rstrip("/")
 DOCLING_REMOTE_TIMEOUT = float(os.getenv("DOCLING_REMOTE_TIMEOUT", "300.0"))
 DOCLING_VLM_BASE_URL = os.getenv("DOCLING_VLM_BASE_URL", "http://localhost:11434")
 DOCLING_VLM_MAX_NEW_TOKENS = int(os.getenv("DOCLING_VLM_MAX_NEW_TOKENS", "128"))
+DOCLING_TABLE_VLM_MAX_NEW_TOKENS = int(
+    os.getenv("DOCLING_TABLE_VLM_MAX_NEW_TOKENS", "1024")
+)
+DOCLING_EXTRACT_IMAGE_TABLE_GRID = (
+    os.getenv("DOCLING_EXTRACT_IMAGE_TABLE_GRID", "true").lower() == "true"
+)
 DOCLING_VLM_TIMEOUT_SECONDS = float(os.getenv("DOCLING_VLM_TIMEOUT_SECONDS", "120.0"))
 DOCLING_VLM_SELECTIVE_ROUTING = (
     os.getenv("DOCLING_VLM_SELECTIVE_ROUTING", "true").lower() == "true"
@@ -46,10 +53,11 @@ DOCLING_CITATION_PDF_DIR = os.getenv(
     "DOCLING_CITATION_PDF_DIR", str(BASE_DIR / "data" / "citation_pdfs")
 )
 DOCLING_LIBREOFFICE_PATH = os.getenv("DOCLING_LIBREOFFICE_PATH", "")
-# Chunk budget in tokens. Kept at the embedding model's sequence limit
-# (sentence-transformers/all-MiniLM-L6-v2 truncates beyond 256) so chunks are
-# never silently truncated at embedding time.
-DOCLING_MAX_TOKENS = int(os.getenv("DOCLING_MAX_TOKENS", "256"))
+# Chunk budget in tokens. With BAAI/bge-small-en-v1.5 (512 token capacity), 384 tokens
+# provides optimal context for tables and paragraphs while reserving ~128 tokens for
+# heading breadcrumbs (_contextualize). When using sentence-transformers/all-MiniLM-L6-v2
+# (256 token limit), set DOCLING_MAX_TOKENS to 200-256 to prevent silent truncation.
+DOCLING_MAX_TOKENS = int(os.getenv("DOCLING_MAX_TOKENS", "384"))
 RAG_DISTANCE_THRESHOLD = float(os.getenv("RAG_DISTANCE_THRESHOLD", "0.60"))
 RAG_DISTANCE_RELAXATION = float(os.getenv("RAG_DISTANCE_RELAXATION", "0.05"))
 RAG_MIN_DISTANCE_GAP = float(os.getenv("RAG_MIN_DISTANCE_GAP", "0.10"))
@@ -272,4 +280,22 @@ DUAL_CACHE_SYNC_INTERVAL_SECONDS = float(
     os.getenv("DUAL_CACHE_SYNC_INTERVAL_SECONDS", os.getenv("LANGCACHE_SYNC_INTERVAL_SECONDS", "60.0"))
 )
 DUAL_CACHE_SYNC_ON_WRITE = os.getenv("DUAL_CACHE_SYNC_ON_WRITE", "true").lower() == "true"
+
+
+# ============================================
+# Chunk Normalization & Ingestion Settings
+# ============================================
+CHROMA_COLLECTION = os.getenv("CHROMA_COLLECTION", COLLECTION_NAME)
+CHUNK_HARD_TOKEN_CEILING = int(os.getenv("CHUNK_HARD_TOKEN_CEILING", "200"))
+CHUNK_COALESCE_MAX_TOKENS = int(os.getenv("CHUNK_COALESCE_MAX_TOKENS", "200"))
+CHUNK_MIN_FRAGMENT_TOKENS = int(os.getenv("CHUNK_MIN_FRAGMENT_TOKENS", "80"))
+DYNAMIC_SECTION_TRACKING_ENABLED = (
+    os.getenv("DYNAMIC_SECTION_TRACKING_ENABLED", "true").lower() in ("true", "1", "yes")
+)
+CHUNK_NORMALIZER_ENABLED = (
+    os.getenv("CHUNK_NORMALIZER_ENABLED", "true").lower() in ("true", "1", "yes")
+)
+
+# Export module instance as `settings` for compatibility with `from app.core.settings import settings`
+settings = sys.modules[__name__]
 

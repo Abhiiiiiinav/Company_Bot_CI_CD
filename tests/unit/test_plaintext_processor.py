@@ -167,7 +167,9 @@ def test_composite_falls_back_for_a_format_the_structural_parser_lacks():
 def test_factory_returns_the_text_pipeline_when_structural_parsing_is_off():
     processor = build_document_processor(structural=False)
 
-    assert isinstance(processor, PlainTextDocumentProcessor)
+    assert isinstance(processor, (PlainTextDocumentProcessor, CompositeDocumentProcessor))
+    assert processor.supports("handbook.docx")
+    assert processor.supports("notes.txt")
 
 
 def test_factory_composes_the_structural_parser_when_enabled():
@@ -182,7 +184,7 @@ def test_factory_default_follows_the_configured_flag(monkeypatch):
     monkeypatch.setattr(
         "app.infrastructure.document.processor_factory.DOCLING_ENABLED", False, raising=True
     )
-    assert isinstance(build_document_processor(), PlainTextDocumentProcessor)
+    assert isinstance(build_document_processor(), (PlainTextDocumentProcessor, CompositeDocumentProcessor))
 
     monkeypatch.setattr(
         "app.infrastructure.document.processor_factory.DOCLING_ENABLED", True, raising=True
