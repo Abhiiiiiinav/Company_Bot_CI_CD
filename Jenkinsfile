@@ -71,6 +71,13 @@ pipeline {
                             sleep 5
                         done
 
+                        echo "Waiting for Docker installation to complete on application VM..."
+                        until ssh \${SSH_OPTS} \${SSH_USER}@\${APP_IP} "docker --version && docker compose version" 2>/dev/null; do
+                            echo "Docker is still installing on app VM, retrying in 10 seconds..."
+                            sleep 10
+                        done
+                        echo "Docker and Docker Compose are fully initialized!"
+
                         echo "Packaging source files for deployment..."
                         tar -czf /tmp/app_bundle.tar.gz \
                             --exclude='.git' \
