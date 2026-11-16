@@ -1,3 +1,4 @@
+import os
 import re
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
@@ -10,18 +11,33 @@ from app.core.settings import BASE_DIR, COLLECTION_NAME, EMBEDDING_MODEL
 
 logger = logging.getLogger("knowlayer.retrieval")
 
+_CHROMA_CLIENT_REGISTRY: dict[str, chromadb.PersistentClient] = {}
+_DEFAULT_VECTOR_STORE = None
+
+
+def get_default_vector_store():
+    global _DEFAULT_VECTOR_STORE
+    if _DEFAULT_VECTOR_STORE is None:
+        _DEFAULT_VECTOR_STORE = ChromaVectorStore()
+    return _DEFAULT_VECTOR_STORE
+
 
 class ChromaVectorStore:
     def __init__(
         self,
-        collection_name: str = "hr_policy_docs",
+        collection_name: str = COLLECTION_NAME,
         persist_directory: Optional[str] = None,
     ):
         self.collection_name = collection_name
-        self.persist_directory = Path(persist_directory or (BASE_DIR / ".chroma"))
+        self.persist_directory = Path(
+            persist_directory or os.getenv("CHROMA_PERSIST_DIRECTORY", str(BASE_DIR / ".chroma"))
+        ).resolve()
         self.persist_directory.mkdir(parents=True, exist_ok=True)
 
-        self.client = chromadb.PersistentClient(path=str(self.persist_directory))
+        key = str(self.persist_directory)
+        if key not in _CHROMA_CLIENT_REGISTRY:
+            _CHROMA_CLIENT_REGISTRY[key] = chromadb.PersistentClient(path=key)
+        self.client = _CHROMA_CLIENT_REGISTRY[key]
         self._collection = None
         self._embedding_model = None
 
@@ -64,8 +80,11 @@ class ChromaVectorStore:
             logger.info("deleted all existing chunks for document_id %r", document_id)
         except Exception as e:
             if "does not exist" in str(e).lower():
-                self.refresh_collection().delete(where={"document_id": document_id})
-                return
+                try:
+                    self.refresh_collection().delete(where={"document_id": document_id})
+                    return
+                except Exception:
+                    pass
             logger.warning("failed to delete chunks for document_id %r: %s", document_id, e)
 
     def add_documents(
@@ -76,42 +95,40 @@ class ChromaVectorStore:
         collection_name: Optional[str] = None,
         **kwargs,
     ) -> None:
-        if ids is not None and documents is not None and (not documents or isinstance(documents[0], str)):
-            # Formatted as (ids=..., documents=[str,...], metadatas=...)
-            recs = [
-                {"id": cid, "text": doc, "metadata": meta}
-                for cid, doc, meta in zip(ids, documents, metadatas or [{}] * len(ids))
-            ]
-            documents = recs
-
-        if not documents:
+        if ids is not None and documents is not None:
+            ids_to_add = [str(i) for i in ids]
+            texts_to_add = [str(d) for d in documents]
+            metadatas_to_add = metadatas or [{}] * len(ids_to_add)
+        elif documents:
+            ids_to_add = [str(doc["id"]) for doc in documents]
+            texts_to_add = [str(doc["text"]) for doc in documents]
+            metadatas_to_add = [doc.get("metadata", {}) for doc in documents]
+        else:
             return
 
-        ids_to_add = [str(doc["id"]) for doc in documents]
-        texts_to_add = [str(doc["text"]) for doc in documents]
-
-        # Sanitize metadata for ChromaDB (convert tuples/sets to lists or strings)
+        # Sanitize metadata for ChromaDB scalar requirements
         cleaned_metadatas = []
-        for doc in documents:
-            raw_meta = doc.get("metadata", {}) or {}
-            clean_m = {}
-            for k, v in raw_meta.items():
+        for meta in metadatas_to_add:
+            clean = {}
+            for k, v in (meta or {}).items():
                 if isinstance(v, (list, tuple, set)):
-                    clean_m[k] = list(v)
-                elif isinstance(v, (str, int, float, bool)) or v is None:
-                    clean_m[k] = v
+                    clean[k] = " > ".join(str(item) for item in v)
+                elif v is None:
+                    clean[k] = ""
+                elif isinstance(v, (str, int, float, bool)):
+                    clean[k] = v
                 else:
-                    clean_m[k] = str(v)
-            cleaned_metadatas.append(clean_m)
+                    clean[k] = str(v)
+            cleaned_metadatas.append(clean)
 
         # Do not vectorize Document name / Policy header prefix; vectorize clean body content
         _prefix_strip_re = re.compile(r"^(?:\[(?:Policy|Doc|Document Scope):[^\n]+\]\s*\n?)+", re.IGNORECASE)
         texts_to_embed = []
-        for doc, meta in zip(documents, cleaned_metadatas):
+        for text, meta in zip(texts_to_add, cleaned_metadatas):
             raw = meta.get("raw_text")
             if not raw:
-                raw = _prefix_strip_re.sub("", doc["text"]).strip()
-            texts_to_embed.append(raw if raw else doc["text"])
+                raw = _prefix_strip_re.sub("", text).strip()
+            texts_to_embed.append(raw if raw else text)
 
         embeddings = self.embedding_model.encode(texts_to_embed, convert_to_numpy=True).tolist()
 
@@ -212,7 +229,9 @@ class ChromaClient:
     """
 
     def __init__(self, persist_directory: Optional[str] = None):
-        self.persist_directory = Path(persist_directory or (BASE_DIR / ".chroma"))
+        self.persist_directory = Path(
+            persist_directory or os.getenv("CHROMA_PERSIST_DIRECTORY", str(BASE_DIR / ".chroma"))
+        ).resolve()
         self._stores: Dict[str, ChromaVectorStore] = {}
 
     def get_store(self, collection_name: str) -> ChromaVectorStore:

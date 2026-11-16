@@ -11,6 +11,7 @@ which keeps the adapter independently testable: tests supply stand-ins and
 exercise the structural mapping without loading layout models or a tokenizer.
 """
 import logging
+import re
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -19,7 +20,15 @@ from typing import Any, Sequence
 from docling.chunking import HybridChunker
 from docling.datamodel.base_models import DocumentStream, FormatToExtensions, InputFormat
 from docling.document_converter import DocumentConverter
+from docling_core.transforms.chunker.hierarchical_chunker import (
+    ChunkingDocSerializer,
+    ChunkingSerializerProvider,
+)
 from docling_core.transforms.chunker.tokenizer.huggingface import HuggingFaceTokenizer
+from docling_core.transforms.serializer.markdown import (
+    BaseTableSerializer,
+    MarkdownTableSerializer,
+)
 from docling_core.types.doc import DocItemLabel
 
 from app.core.settings import (
@@ -189,6 +198,240 @@ class _ItemFacts:
     section_path: tuple[SectionHeading, ...]
 
 
+class MarkdownChunkingDocSerializer(ChunkingDocSerializer):
+    """Doc serializer that outputs clean 2D Markdown tables instead of lossy triplets."""
+
+    table_serializer: BaseTableSerializer = MarkdownTableSerializer()
+
+
+class MarkdownChunkingSerializerProvider(ChunkingSerializerProvider):
+    """Serializer provider injecting MarkdownTableSerializer into HybridChunker."""
+
+    def get_serializer(self, doc: Any) -> Any:
+        return MarkdownChunkingDocSerializer(doc=doc)
+
+
+# Strip null bytes and non-printable control characters (excluding \n and \t)
+CONTROL_CHARS_REGEX = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f\u200b\u200c\u200d\ufeff]")
+
+
+def _is_table_divider(line: str) -> bool:
+    """Check if a line is a markdown table delimiter row (e.g., | :--- | ---: |)."""
+    stripped = line.strip()
+    if not (stripped.startswith("|") and stripped.endswith("|")):
+        return False
+    return (
+        stripped.replace("|", "").replace(":", "").replace("-", "").replace(" ", "") == ""
+    )
+
+
+def _is_toc_line(line: str) -> bool:
+    """Check if a line looks like a Table of Contents entry (e.g. dot leaders with page numbers)."""
+    stripped = line.strip().strip("|").strip()
+    if not stripped:
+        return False
+    # Dot leaders (3+ dots) followed by optional page number or trailing dots
+    # e.g., "LEAVES OF ABSENCE........................................20" or "INTEREST................"
+    if re.search(r"(?:\.\s*){3,}\s*\d*$", stripped):
+        return True
+    if re.search(r"\.{3,}", stripped):
+        return True
+    # Standalone TOC section headers
+    if re.fullmatch(r"(?i)(?:#*\s*)?(?:table\s+of\s+contents|contents|index)", stripped):
+        return True
+    return False
+
+
+def _extract_table_header(text: str) -> str | None:
+    """Extract markdown table header (header row + delimiter row) if present.
+
+    A valid markdown table header consists of a multi-column header row with pipes
+    and an immediately following delimiter row (containing dashes and colons).
+    Disqualifies single-column rows (count("|") < 3) and rows containing dot leaders.
+    """
+    lines = [line.strip() for line in text.strip().splitlines() if line.strip()]
+    for i in range(len(lines) - 1):
+        if (
+            lines[i].startswith("|")
+            and lines[i].endswith("|")
+            and lines[i].count("|") >= 3
+            and not re.search(r"(?:\.\s*){3,}", lines[i])
+            and lines[i + 1].startswith("|")
+            and lines[i + 1].endswith("|")
+        ):
+            divider_clean = (
+                lines[i + 1]
+                .replace("|", "")
+                .replace(":", "")
+                .replace("-", "")
+                .replace(" ", "")
+            )
+            if divider_clean == "" and "-" in lines[i + 1]:
+                return f"{lines[i]}\n{lines[i + 1]}"
+    return None
+
+
+def _is_table_row(line: str) -> bool:
+    """Check if a line matches a markdown table row."""
+    stripped = line.strip()
+    if not (stripped.startswith("|") and stripped.endswith("|") and len(stripped) > 2):
+        return False
+    # Reject lines containing dot leaders (common in TOCs parsed as pseudo-tables)
+    if re.search(r"(?:\.\s*){3,}", stripped):
+        return False
+    return True
+
+
+def _is_micro_stub(text: str) -> bool:
+    """Detect non-informative micro-stubs, TOC dot leaders, or lone page numbers."""
+    stripped = text.strip()
+    if len(stripped) < 3 and not stripped.isalnum():
+        return True
+    # Isolated page numbers: e.g. "Page 1 of 12" or "Page 3"
+    if re.fullmatch(r"(?i)page\s+\d+(?:\s+of\s+\d+)?", stripped):
+        return True
+
+    # Check for Table of Contents (TOC) blocks:
+    # If 50% or more of non-divider lines in the chunk are TOC dot-leader entries
+    lines = [
+        line.strip()
+        for line in stripped.splitlines()
+        if line.strip() and not _is_table_divider(line.strip())
+    ]
+    if lines:
+        toc_lines_count = sum(1 for line in lines if _is_toc_line(line))
+        if toc_lines_count > 0 and (toc_lines_count / len(lines)) >= 0.5:
+            return True
+
+    # Dot leaders or divider repetitions where dots/dashes make up > 45% of content
+    dots_and_dashes = stripped.count(".") + stripped.count("-") + stripped.count("_")
+    if len(stripped) > 10 and (dots_and_dashes / len(stripped)) > 0.45:
+        words = re.findall(r"[a-zA-Z]{3,}", stripped)
+        if len(words) <= 2:
+            return True
+    return False
+
+
+def _extract_trailing_heading(text: str) -> tuple[str, str | None]:
+    """Check if text ends with a markdown heading without body text underneath."""
+    # Ensure text is not inside an unclosed code block fence
+    if text.count("```") % 2 == 1:
+        return text, None
+
+    lines = text.rstrip().splitlines()
+    if not lines:
+        return text, None
+
+    last_line = lines[-1].strip()
+    # Matches Markdown headings (# Heading), or bold standalone headings (**Heading**)
+    is_heading = bool(
+        re.match(r"^#{1,6}\s+.+$", last_line)
+        or re.match(r"^\*\*[A-Z0-9][\w\s\.\-]{2,80}\*\*$", last_line)
+    )
+    if is_heading:
+        non_empty = [l for l in lines if l.strip()]
+        if len(non_empty) <= 1:
+            return "", last_line
+        remaining = "\n".join(lines[:-1]).rstrip()
+        return remaining, last_line
+    return text, None
+
+
+def _heal_and_normalize_chunks(
+    chunks: Sequence[ProcessedChunk],
+    is_scanned: bool = False,
+) -> tuple[ProcessedChunk, ...]:
+    """Apply surgical boundary healing, table header propagation, and orphan heading shifting."""
+    if not chunks:
+        return ()
+
+    active_table_header: str | None = None
+    pending_heading: str | None = None
+    normalized: list[ProcessedChunk] = []
+
+    for chunk in chunks:
+        raw_text = CONTROL_CHARS_REGEX.sub("", chunk.text).strip()
+        if not raw_text:
+            continue
+
+        if DOCLING_SKIP_BLANK_PAGES and _is_micro_stub(raw_text):
+            logger.debug("Pruned micro-stub chunk: %r", raw_text[:50])
+            continue
+
+        # If a pending orphan heading was shifted from the previous chunk, prepend it
+        if pending_heading:
+            raw_text = f"{pending_heading}\n\n{raw_text}"
+            pending_heading = None
+
+        # Check for table header continuity
+        lines = [line.strip() for line in raw_text.splitlines() if line.strip()]
+        has_new_header = _extract_table_header(raw_text)
+        if has_new_header:
+            active_table_header = has_new_header
+        elif lines and _is_table_row(lines[0]):
+            # Continuation table chunk: starts with table row but lacks header/divider
+            if len(lines) < 2 or not _is_table_divider(lines[1]):
+                if active_table_header:
+                    raw_text = f"{active_table_header}\n{raw_text}"
+        else:
+            # Non-table content resets active table header
+            active_table_header = None
+
+        # Check if chunk ends with an orphan heading
+        remaining_text, trailing_heading = _extract_trailing_heading(raw_text)
+        if trailing_heading and not remaining_text:
+            # Chunk was ONLY a heading; hold it to prepend to next chunk
+            pending_heading = trailing_heading
+            continue
+        elif trailing_heading and remaining_text:
+            raw_text = remaining_text
+            pending_heading = trailing_heading
+
+        meta = dict(chunk.metadata)
+        if is_scanned:
+            meta["is_scanned"] = True
+
+        normalized.append(
+            ProcessedChunk(
+                text=raw_text,
+                index=len(normalized),
+                page_number=chunk.page_number,
+                section_path=chunk.section_path,
+                content_type=chunk.content_type,
+                metadata=meta,
+            )
+        )
+
+    # If document ends with a trailing orphan heading, append it as a final chunk
+    if pending_heading:
+        meta = {"is_scanned": True} if is_scanned else {}
+        last_page = normalized[-1].page_number if normalized else None
+        last_path = normalized[-1].section_path if normalized else ()
+        normalized.append(
+            ProcessedChunk(
+                text=pending_heading,
+                index=len(normalized),
+                page_number=last_page,
+                section_path=last_path,
+                content_type="text",
+                metadata=meta,
+            )
+        )
+
+    # Re-index to ensure strictly contiguous ordinals
+    return tuple(
+        ProcessedChunk(
+            text=c.text,
+            index=i,
+            page_number=c.page_number,
+            section_path=c.section_path,
+            content_type=c.content_type,
+            metadata=c.metadata,
+        )
+        for i, c in enumerate(normalized)
+    )
+
+
 class DoclingDocumentProcessor:
     """Parse and structurally chunk documents with Docling's HybridChunker."""
 
@@ -228,7 +471,11 @@ class DoclingDocumentProcessor:
                     f"Unable to initialise the Docling chunker tokenizer "
                     f"{self._tokenizer_name!r}: {error}"
                 ) from error
-            self._chunker = HybridChunker(tokenizer=tokenizer, max_tokens=self._max_tokens)
+            self._chunker = HybridChunker(
+                tokenizer=tokenizer,
+                max_tokens=self._max_tokens,
+                serializer_provider=MarkdownChunkingSerializerProvider(),
+            )
         return self._chunker
 
     def supported_extensions(self) -> Sequence[str]:
@@ -253,9 +500,10 @@ class DoclingDocumentProcessor:
                 f"Unsupported document type: {suffix or '(none)'} (supported: {supported})"
             )
 
-        document, page_count = self._convert(content, file_name)
+        document, page_count, is_scanned = self._convert(content, file_name)
         outline, facts = self._index_items(document)
-        chunks = self._collect_chunks(document, facts)
+        raw_chunks = self._collect_chunks(document, facts)
+        chunks = _heal_and_normalize_chunks(raw_chunks, is_scanned=is_scanned)
         if DOCLING_VISUAL_ENRICHMENT_ENABLED:
             enricher = self._visual_enricher or VisualEnricher()
             visual_chunks = enricher.enrich(document, facts, starting_index=len(chunks))
@@ -286,12 +534,14 @@ class DoclingDocumentProcessor:
     def _format_of(self, file_name: str) -> InputFormat | None:
         return _EXTENSION_TO_FORMAT.get(Path(file_name).suffix.lower().lstrip("."))
 
-    def _convert(self, content: bytes, file_name: str) -> tuple[Any, int | None]:
-        """Run the converter and return the document plus its page count."""
+    def _convert(self, content: bytes, file_name: str) -> tuple[Any, int | None, bool]:
+        """Run the converter and return the document, its page count, and is_scanned flag."""
         stream = DocumentStream(name=Path(file_name).name, stream=BytesIO(content))
         converter = self._converter
+        is_pdf = Path(file_name).suffix.lower() == ".pdf"
+        is_digital = is_pdf and _has_digital_text(content)
+        is_scanned = is_pdf and not is_digital
         if converter is None:
-            is_digital = Path(file_name).suffix.lower() == ".pdf" and _has_digital_text(content)
             converter = get_docling_converter(is_digital_pdf=is_digital)
 
         try:
@@ -305,7 +555,7 @@ class DoclingDocumentProcessor:
 
         pages = getattr(result, "pages", None)
         page_count = len(pages) if pages else None
-        return document, page_count
+        return document, page_count, is_scanned
 
     def _index_items(self, document: Any) -> tuple[list[SectionHeading], dict[str, _ItemFacts]]:
         """Walk the document once, recording outline and per-item structural facts.

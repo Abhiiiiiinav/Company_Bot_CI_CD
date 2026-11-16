@@ -1,4 +1,4 @@
-from typing import List, Dict, Any, Optional
+from typing import Any, Dict, List, Optional
 import re
 from pathlib import Path
 import hashlib
@@ -170,7 +170,7 @@ def build_chunk_records_from_processed(
             {
                 "id": f"{document_id}-{position}",
                 "text": sanitized_text,
-                "metadata": metadata,
+                "metadata": sanitize_chroma_metadata(metadata),
             }
         )
 
