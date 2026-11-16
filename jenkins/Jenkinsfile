@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        TF_DIR      = 'terraform/environments/gcp-app'
+        TF_DIR      = 'cicd/terraform/environments/gcp-app'
         DEPLOY_USER = 'deployer'
     }
 
@@ -83,6 +83,8 @@ pipeline {
                             --exclude='.git' \
                             --exclude='.venv' \
                             --exclude='__pycache__' \
+                            --exclude='cicd' \
+                            --exclude='jenkins' \
                             --exclude='terraform' \
                             --exclude='.terraform' \
                             --exclude='instance' \

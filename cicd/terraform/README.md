@@ -5,7 +5,7 @@ Clean, modular Terraform layout supporting **GCP** (active), **AWS**, and **Azur
 ## Directory Structure
 
 ```text
-terraform/
+cicd/terraform/
 ├── modules/
 │   ├── hardware_sizing/   # Shared cpu_count (1, 2, 4) -> cloud instance type mapper
 │   ├── compute_gcp/       # GCP Debian 12 VM + firewall + Shielded VM
@@ -30,13 +30,13 @@ Each environment separates files by responsibility:
 
 ```powershell
 # 1. Initialize providers and modules
-terraform -chdir=terraform/environments/gcp init
+terraform -chdir=cicd/terraform/environments/gcp init
 
 # 2. Preview changes (default: 2 vCPUs -> e2-medium)
-terraform -chdir=terraform/environments/gcp plan
+terraform -chdir=cicd/terraform/environments/gcp plan
 
 # 3. Scale CPU count (1 -> e2-micro, 2 -> e2-medium, 4 -> e2-standard-4)
-terraform -chdir=terraform/environments/gcp apply -var="cpu_count=4"
+terraform -chdir=cicd/terraform/environments/gcp apply -var="cpu_count=4"
 ```
 
 ## Switching to AWS or Azure Later
@@ -45,12 +45,12 @@ Simply run Terraform inside `environments/aws` or `environments/azure`. Because 
 
 ```powershell
 # AWS (automatically fetches the latest Amazon Linux 2023 AMI in the selected region)
-terraform -chdir=terraform/environments/aws init
-terraform -chdir=terraform/environments/aws plan -var="region=us-east-1" -var="cpu_count=2"
+terraform -chdir=cicd/terraform/environments/aws init
+terraform -chdir=cicd/terraform/environments/aws plan -var="region=us-east-1" -var="cpu_count=2"
 
 # Azure
-terraform -chdir=terraform/environments/azure init
-terraform -chdir=terraform/environments/azure plan -var="ssh_public_key=ssh-ed25519 AAAA..."
+terraform -chdir=cicd/terraform/environments/azure init
+terraform -chdir=cicd/terraform/environments/azure plan -var="ssh_public_key=ssh-ed25519 AAAA..."
 ```
 
 ## Enabling Remote State Locking
