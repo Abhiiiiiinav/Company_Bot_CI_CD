@@ -71,15 +71,17 @@ pipeline {
                         ACTIVE_KEY=$( [ -f "$TF_KEY_FILE" ] && echo "$TF_KEY_FILE" || echo "$JENKINS_KEY" )
                         SSH_OPTS="-i $ACTIVE_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-                        # Copy docker-compose.yml and the secret .env to test-vm
+                        # Remove any root-owned .env before uploading the fresh one
+                        ssh $SSH_OPTS ${SSH_USER}@${DEPLOY_IP} "rm -f ~/.env"
+
                         scp $SSH_OPTS docker-compose.yml ${SSH_USER}@${DEPLOY_IP}:~/docker-compose.yml
                         scp $SSH_OPTS "$ENV_FILE" ${SSH_USER}@${DEPLOY_IP}:~/.env
 
-                        # Pull latest images and recreate containers
                         ssh $SSH_OPTS ${SSH_USER}@${DEPLOY_IP} "
                             echo '$GH_TOKEN' | docker login ghcr.io -u '$GH_USER' --password-stdin &&
-                            docker compose pull &&
-                            docker compose up -d --remove-orphans &&
+                            docker compose -f ~/docker-compose.yml pull &&
+                            docker rm -f knowlayer-backend knowlayer-frontend 2>/dev/null || true &&
+                            docker compose -f ~/docker-compose.yml up -d --remove-orphans &&
                             docker image prune -f
                         "
                     '''
