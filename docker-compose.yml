@@ -30,7 +30,10 @@ services:
     restart: unless-stopped
     ports:
       - "8501:8501"
+    env_file:
+      - .env
     environment:
+      - STREAMLIT_API_BASE_URL=http://backend:8000
       - BACKEND_URL=http://backend:8000
     depends_on:
       - backend
