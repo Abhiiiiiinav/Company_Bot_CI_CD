@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     parameters {
-        string(name: 'TARGET_VM_IP', defaultValue: 'PASTE_TEST_VM_IP_HERE', description: 'Fallback IP for test-vm')
+        string(name: 'TARGET_VM_IP', defaultValue: '34.47.150.171', description: 'Fallback IP for test-vm')
         booleanParam(name: 'SKIP_TESTS', defaultValue: false, description: 'Skip pytest for fast deploy testing')
     }
 
