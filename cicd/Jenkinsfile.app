@@ -71,7 +71,7 @@ pipeline {
                         ACTIVE_KEY=$( [ -f "$TF_KEY_FILE" ] && echo "$TF_KEY_FILE" || echo "$JENKINS_KEY" )
                         SSH_OPTS="-i $ACTIVE_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
-                        # Remove any root-owned .env before uploading the fresh one
+                        
                         ssh $SSH_OPTS ${SSH_USER}@${DEPLOY_IP} "rm -f ~/.env"
 
                         scp $SSH_OPTS docker-compose.yml ${SSH_USER}@${DEPLOY_IP}:~/docker-compose.yml
