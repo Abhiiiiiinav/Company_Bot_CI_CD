@@ -75,3 +75,6 @@ specs/
 report.html
 research_doc.md
 
+# Allow seed data directory (faqs.json, seeded_users.json, semantic_cache.json)
+!data/
+!data/*.json
