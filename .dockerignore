@@ -39,18 +39,18 @@ ENV/
 # 4. SENSITIVE CREDENTIALS & SECRETS
 # REASONING: Never bake .env secrets directly into the image layers.
 # Secrets should be injected at runtime via docker-compose (env_file / environment).
-/data/
 *.db
+*.sqlite
 *.sqlite3
 .env
 *.pem
 *.key
+cicd/terraform/
 
 # 5. EPHEMERAL RUNTIME & LOCAL DATA
 # REASONING: Local database files and cache should not overwrite container state.
 # These will be mounted as persistent Docker volumes at runtime instead.
-instance/*.db3
-instance/*.db
+instance/
 conversation_logs/
 .chroma/
 cache/

@@ -29,25 +29,30 @@ pipeline {
             when { expression { return !params.SKIP_TESTS } }
             steps {
                 sh '''
-                    python3 -m venv .venv
-                    . .venv/bin/activate
-                    pip install -r requirements.txt
-                    pytest
+                    docker run --rm \
+                        -v "$(pwd)":/workspace \
+                        -w /workspace \
+                        python:3.11-slim \
+                        sh -c "pip install --no-cache-dir -r requirements.txt && pytest"
                 '''
             }
         }
 
-                stage('3. Build & Push to GHCR') {
+        stage('3. Build & Push to GHCR') {
             steps {
                 withCredentials([usernamePassword(credentialsId: 'ghcr-creds', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')]) {
                     sh '''
+                        # 1. Log in to GitHub Container Registry
                         echo "$GH_TOKEN" | docker login ghcr.io -u "$GH_USER" --password-stdin
 
-                        # Build backend and frontend images
-                        docker build -t ghcr.io/abhiiiiiinav/knowlayer-backend:latest ./app
-                        docker build -t ghcr.io/abhiiiiiinav/knowlayer-frontend:latest ./frontend
+                        # 2. Ensure docker socket permissions (without -it flag for non-interactive CI)
+                        docker exec -u 0 Jenkins chmod 666 /var/run/docker.sock || true
 
-                        # Push images to GitHub Container Registry
+                        # 3. Build multi-stage targets from root context (.)
+                        docker build --target backend -t ghcr.io/abhiiiiiinav/knowlayer-backend:latest .
+                        docker build --target frontend -t ghcr.io/abhiiiiiinav/knowlayer-frontend:latest .
+
+                        # 4. Push images to GitHub Container Registry
                         docker push ghcr.io/abhiiiiiinav/knowlayer-backend:latest
                         docker push ghcr.io/abhiiiiiinav/knowlayer-frontend:latest
                     '''
@@ -59,13 +64,18 @@ pipeline {
             steps {
                 withCredentials([
                     sshUserPrivateKey(credentialsId: 'vm-ssh-key', keyFileVariable: 'JENKINS_KEY'),
-                    usernamePassword(credentialsId: 'ghcr-creds', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN')
+                    usernamePassword(credentialsId: 'ghcr-creds', usernameVariable: 'GH_USER', passwordVariable: 'GH_TOKEN'),
+                    file(credentialsId: 'app-env-file', variable: 'ENV_FILE')
                 ]) {
                     sh '''
                         ACTIVE_KEY=$( [ -f "$TF_KEY_FILE" ] && echo "$TF_KEY_FILE" || echo "$JENKINS_KEY" )
                         SSH_OPTS="-i $ACTIVE_KEY -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null"
 
+                        # Copy docker-compose.yml and the secret .env to test-vm
                         scp $SSH_OPTS docker-compose.yml ${SSH_USER}@${DEPLOY_IP}:~/docker-compose.yml
+                        scp $SSH_OPTS "$ENV_FILE" ${SSH_USER}@${DEPLOY_IP}:~/.env
+
+                        # Pull latest images and recreate containers
                         ssh $SSH_OPTS ${SSH_USER}@${DEPLOY_IP} "
                             echo '$GH_TOKEN' | docker login ghcr.io -u '$GH_USER' --password-stdin &&
                             docker compose pull &&

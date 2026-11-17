@@ -1,5 +1,4 @@
 services:
-  
   jenkins:
     image: jenkins/jenkins:lts-jdk21
     ports:
@@ -10,14 +9,18 @@ services:
       - jenkins_home:/var/jenkins_home
     user: "0"  # root user
     restart: unless-stopped
+
   backend:
-    image: ghcr.io/akaashsamson/knowlayer-backend:latest
+    image: ghcr.io/abhiiiiiinav/knowlayer-backend:latest
     build:
-      context: ./app
+      context: .
+      target: backend
     container_name: knowlayer-backend
     restart: unless-stopped
     ports:
       - "8000:8000"
+    env_file:
+      - .env
     environment:
       - HF_HOME=/root/.cache/huggingface
       - DATABASE_URL=sqlite:////data/sqlite/knowlayer.db
@@ -30,9 +33,10 @@ services:
       - /data/uploads:/data/uploads
 
   frontend:
-    image: ghcr.io/akaashsamson/knowlayer-frontend:latest
+    image: ghcr.io/abhiiiiiinav/knowlayer-frontend:latest
     build:
-      context: ./frontend
+      context: .
+      target: frontend
     container_name: knowlayer-frontend
     restart: unless-stopped
     ports:
