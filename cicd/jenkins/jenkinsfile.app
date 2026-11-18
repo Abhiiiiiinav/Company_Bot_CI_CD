@@ -93,10 +93,12 @@ pipeline {
                         ssh \$SSH_OPTS \${SSH_USER}@\${DEPLOY_IP} "
                             sed -i '/^IMAGE_TAG=/d' ~/.env || true
                             echo 'IMAGE_TAG=${env.GIT_SHA}' >> ~/.env
+                            export IMAGE_TAG=${env.GIT_SHA}
                             echo '\$GH_TOKEN' | docker login ghcr.io -u '\$GH_USER' --password-stdin &&
-                            docker compose -f ~/docker-compose.yml pull &&
+                            cd ~ &&
+                            docker compose --env-file ~/.env pull &&
                             docker rm -f knowlayer-backend knowlayer-frontend 2>/dev/null || true &&
-                            docker compose -f ~/docker-compose.yml up -d --remove-orphans --force-recreate &&
+                            docker compose --env-file ~/.env up -d --remove-orphans --force-recreate &&
                             docker image prune -f
                         "
                     """
@@ -110,8 +112,9 @@ pipeline {
                     echo "Verifying live deployment matches commit receipt: ${env.GIT_SHA}..."
                     sh """
                         for i in \$(seq 1 10); do
-                            LIVE_COMMIT=\$(curl -sf http://${env.DEPLOY_IP}:8000/health | grep -o '"commit":"[^"]*"' | cut -d'"' -f4 || echo "unreachable")
-                            echo "Attempt \$i: Live health commit is '\$LIVE_COMMIT' (expected: ${env.GIT_SHA})"
+                            RAW_RESP=\$(curl -s http://${env.DEPLOY_IP}:8000/health || echo "{}")
+                            LIVE_COMMIT=\$(echo "\$RAW_RESP" | sed -n 's/.*"commit"[ :]*"\\([^"]*\\)".*/\\1/p')
+                            echo "Attempt \$i: Response: '\$RAW_RESP' | Extracted commit: '\$LIVE_COMMIT' (expected: ${env.GIT_SHA})"
                             if [ "\$LIVE_COMMIT" = "${env.GIT_SHA}" ]; then
                                 echo "======================================================="
                                 echo "VERIFIED: Live VM is serving exact commit ${env.GIT_SHA}!"
