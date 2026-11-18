@@ -1,6 +1,6 @@
 import asyncio
 import logging
-import asyncio
+import os
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -105,4 +105,7 @@ app.include_router(channels_router)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok"}
+    return {
+        "status": "ok",
+        "commit": os.getenv("GIT_COMMIT", "dev-local")
+    }

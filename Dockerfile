@@ -39,6 +39,11 @@ RUN pip install --no-cache-dir uv
 COPY requirements-frontend.txt .
 RUN uv pip install --system --no-cache -r requirements-frontend.txt
 
+# Invalidate cache on new commit & inject metadata
+ARG GIT_COMMIT=unspecified
+ENV GIT_COMMIT=${GIT_COMMIT}
+LABEL org.opencontainers.image.revision=${GIT_COMMIT}
+
 # Copy Streamlit configuration and presentation code
 COPY .streamlit/ ./.streamlit/
 COPY streamlit_app/ ./streamlit_app/
@@ -85,6 +90,11 @@ RUN mkdir -p /app/instance \
              /app/cache \
              /app/data \
              /app/input
+
+# Invalidate cache on new commit & inject metadata
+ARG GIT_COMMIT=unspecified
+ENV GIT_COMMIT=${GIT_COMMIT}
+LABEL org.opencontainers.image.revision=${GIT_COMMIT}
 
 # Copy application domain, config, and seed data
 COPY app/ ./app/

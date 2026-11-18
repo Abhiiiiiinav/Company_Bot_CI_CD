@@ -1,3 +1,4 @@
+import os
 import uuid
 import streamlit as st
 from streamlit_app.services.profile_api import ProfileAPI
@@ -87,3 +88,7 @@ def render_sidebar():
     # 3. Log out action
     if st.sidebar.button("Log out", key="sidebar_logout_btn", use_container_width=True):
         logout_user()
+
+    git_commit = os.getenv("GIT_COMMIT")
+    if git_commit and git_commit != "unspecified":
+        st.sidebar.caption(f"🔖 Version: `{git_commit[:7]}`")

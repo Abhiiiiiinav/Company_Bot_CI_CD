@@ -1,6 +1,6 @@
 services:
   backend:
-    image: ghcr.io/abhiiiiiinav/knowlayer-backend:latest
+    image: ghcr.io/abhiiiiiinav/knowlayer-backend:${IMAGE_TAG:-latest}
     build:
       context: .
       target: backend
@@ -11,6 +11,7 @@ services:
     env_file:
       - .env
     environment:
+      - GIT_COMMIT=${IMAGE_TAG:-dev-local}
       - HF_HOME=/root/.cache/huggingface
       - DATABASE_URL=sqlite:////data/sqlite/knowlayer.db
       - CHROMA_PERSIST_DIRECTORY=/data/chroma
@@ -22,7 +23,7 @@ services:
       - /data/uploads:/data/uploads
 
   frontend:
-    image: ghcr.io/abhiiiiiinav/knowlayer-frontend:latest
+    image: ghcr.io/abhiiiiiinav/knowlayer-frontend:${IMAGE_TAG:-latest}
     build:
       context: .
       target: frontend
@@ -33,6 +34,7 @@ services:
     env_file:
       - .env
     environment:
+      - GIT_COMMIT=${IMAGE_TAG:-dev-local}
       - STREAMLIT_API_BASE_URL=http://backend:8000
       - BACKEND_URL=http://backend:8000
     depends_on:
